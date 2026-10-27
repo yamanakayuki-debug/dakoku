@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ぱぴよん小児科 打刻</title>
+<script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+<style>
+  :root { --bg:#f7f7f5; --fg:#222; --sub:#666; --in:#2f7d5b; --out:#b4553a; --card:#fff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:420px; margin:0 auto; padding:24px 16px; text-align:center; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  #who { color:var(--sub); font-size:15px; min-height:22px; }
+  #clock { font-size:44px; font-weight:700; margin:20px 0 4px; font-variant-numeric:tabular-nums; }
+  #date { color:var(--sub); margin-bottom:28px; }
+  button { width:100%; border:none; border-radius:14px; color:#fff; font-size:24px; font-weight:700; padding:26px 0; margin-bottom:16px; }
+  #btnIn { background:var(--in); }
+  #btnOut { background:var(--out); }
+  button:disabled { opacity:.4; }
+  #msg { background:var(--card); border-radius:12px; padding:16px; min-height:56px; font-size:16px; line-height:1.6; white-space:pre-wrap; word-break:break-all; }
+  .ok { color:var(--in); font-weight:700; }
+  .ng { color:var(--out); font-weight:700; }
+  small { display:block; color:var(--sub); margin-top:20px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ぱぴよん小児科 出退勤</h1>
+  <div id="who">読み込み中…</div>
+  <div id="clock">--:--</div>
+  <div id="date"></div>
+  <button id="btnIn" disabled>出勤</button>
+  <button id="btnOut" disabled>退勤</button>
+  <div id="msg"></div>
+  <small>位置情報はボタンを押した瞬間のみ取得し、クリニックの近く（100m以内）かどうかの確認に使います。</small>
+</main>
+
+<script>
+/* ===== ここだけ書き換えてください ===== */
+const WOFF_ID = 'ここにWOFF_IDを貼る';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzD8LWhrAvC1I55BTVJqquq4y-ZWr9CPnTVD9AXqwEmpOz35BEJzmYElozBq2EzkK8cbg/exec';
+/* ===================================== */
+
+let profile = null;
+const $ = id => document.getElementById(id);
+const setMsg = (text, cls) => { $('msg').className = cls || ''; $('msg').textContent = text; };
+
+function tick() {
+  const n = new Date();
+  $('clock').textContent = n.toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Tokyo' });
+  $('date').textContent = n.toLocaleDateString('ja-JP', { year:'numeric', month:'long', day:'numeric', weekday:'short', timeZone:'Asia/Tokyo' });
+}
+setInterval(tick, 1000); tick();
+
+async function start() {
+  try {
+    await woff.init({ woffId: WOFF_ID });
+    if (!woff.isInClient()) { $('who').textContent = 'LINE WORKSアプリから開いてください'; return; }
+    profile = await woff.getProfile();
+    $('who').textContent = profile.displayName + ' さん';
+    $('btnIn').disabled = false;
+    $('btnOut').disabled = false;
+  } catch (e) {
+    $('who').textContent = '起動エラー';
+    setMsg('起動に失敗しました。LINE WORKSから開き直してください。\n' + (e.message || e), 'ng');
+  }
+}
+
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('この端末は位置情報に対応していません'));
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
+  });
+}
+
+async function punch(type) {
+  if (!profile) return;
+  $('btnIn').disabled = $('btnOut').disabled = true;
+  setMsg('位置を確認中…');
+  try {
+    let pos;
+    try {
+      pos = await getPosition();
+    } catch (e) {
+      throw new Error('位置情報を取得できませんでした。\nスマホの設定で、LINE WORKSの位置情報を「許可」にしてください。');
+    }
+    setMsg('送信中…');
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        userId: profile.userId,
+        displayName: profile.displayName,
+        type: type,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
+      })
+    });
+    const data = await res.json();
+    setMsg(data.message, data.ok ? 'ok' : 'ng');
+  } catch (e) {
+    setMsg(e.message || '通信エラーです。電波の良い場所で再度お試しください。', 'ng');
+  } finally {
+    $('btnIn').disabled = $('btnOut').disabled = false;
+  }
+}
+
+$('btnIn').addEventListener('click', () => punch('出勤'));
+$('btnOut').addEventListener('click', () => punch('退勤'));
+start();
+</script>
+</body>
+</html>
